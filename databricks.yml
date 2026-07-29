@@ -14,12 +14,26 @@ resources:
         quartz_cron_expression: "0 0 6 * * ?"
         timezone_id: "America/Santiago"
         pause_status: "UNPAUSED"
-      environments:
-        - environment_key: default
-          spec:
-            client: "2"
+      job_clusters:
+        - job_cluster_key: small_cluster
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "r5.large"
+            num_workers: 0
+            spark_conf:
+              spark.databricks.cluster.profile: "singleNode"
+              spark.master: "local[*, 4]"
+            custom_tags:
+              ResourceClass: "SingleNode"
       tasks:
         - task_key: pipeline_completo
-          environment_key: default
+          job_cluster_key: small_cluster
           spark_python_task:
             python_file: ./src/pipeline_job.py
+        
+        - task_key: data_quality_tests
+          depends_on:
+            - task_key: pipeline_completo
+          job_cluster_key: small_cluster
+          spark_python_task:
+            python_file: ./src/data_quality_tests.py
