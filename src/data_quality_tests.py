@@ -12,20 +12,29 @@ TESTS = [
     ("plata_fact_ventas_integrity", 
      "SELECT COUNT(*) FROM catalogo_plata.ventas.fact_ventas v LEFT JOIN catalogo_plata.ventas.dim_cliente c ON v.codigo_cliente = c.codigo_cliente WHERE c.codigo_cliente IS NULL", 0),
     ("oro_kpi_not_empty", 
-     "SELECT COUNT(*) FROM catalogo_oro.ventas.kpi_ventas_mensual", 1),
+     "SELECT COUNT(*) FROM catalogo_oro.ventas.kpi_ventas_mensual", 1, ">="),  # >= 1, no == 1
 ]
 
 print("🔍 EJECUTANDO TESTS DE CALIDAD DE DATOS")
 print("="*60)
 
 failed = 0
-for test_name, query, expected in TESTS:
+for test_name, query, expected, *op in TESTS:
+    operator = op[0] if op else "=="
     try:
         result = spark.sql(query).collect()[0][0]
-        status = "✅ PASS" if result == expected else "❌ FAIL"
-        if result != expected:
+        
+        if operator == ">=":
+            passed = result >= expected
+        elif operator == "<=":
+            passed = result <= expected
+        else:
+            passed = result == expected
+            
+        status = "✅ PASS" if passed else "❌ FAIL"
+        if not passed:
             failed += 1
-        print(f"{status} | {test_name}: resultado={result}, esperado={expected}")
+        print(f"{status} | {test_name}: resultado={result}, esperado {operator} {expected}")
     except Exception as e:
         print(f"❌ FAIL | {test_name}: ERROR - {str(e)[:100]}")
         failed += 1
