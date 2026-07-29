@@ -1,5 +1,4 @@
 from pyspark.sql import SparkSession
-import sys
 
 spark = SparkSession.builder.appName("DataQualityTests").getOrCreate()
 
@@ -21,15 +20,19 @@ print("="*60)
 
 failed = 0
 for test_name, query, expected in TESTS:
-    result = spark.sql(query).collect()[0][0]
-    status = "✅ PASS" if result == expected else "❌ FAIL"
-    if result != expected:
+    try:
+        result = spark.sql(query).collect()[0][0]
+        status = "✅ PASS" if result == expected else "❌ FAIL"
+        if result != expected:
+            failed += 1
+        print(f"{status} | {test_name}: resultado={result}, esperado={expected}")
+    except Exception as e:
+        print(f"❌ FAIL | {test_name}: ERROR - {str(e)[:100]}")
         failed += 1
-    print(f"{status} | {test_name}: resultado={result}, esperado={expected}")
 
 print("="*60)
 if failed > 0:
     print(f"💥 {failed} TESTS FALLARON")
-    sys.exit(1)
+    raise Exception(f"{failed} tests de calidad fallaron")
 else:
     print("🎉 TODOS LOS TESTS PASARON")
