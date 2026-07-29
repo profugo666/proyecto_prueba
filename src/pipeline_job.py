@@ -4,7 +4,6 @@ import sys
 
 spark = SparkSession.builder.appName("PipelineVentas").getOrCreate()
 
-# sys.argv[0] funciona en spark_python_task donde __file__ no existe
 SCRIPT_PATH = os.path.abspath(sys.argv[0])
 BASE_DIR = os.path.dirname(os.path.dirname(SCRIPT_PATH))
 
@@ -32,10 +31,11 @@ def ejecutar_archivo_sql(ruta_relativa, descripcion):
     
     print(f"\n✅ {descripcion} -> COMPLETADO")
 
-ejecutar_archivo_sql("notebooks/03_crear_bronze.sql", "BRONZE: Carga desde volumen")
-ejecutar_archivo_sql("notebooks/04_pipeline_plata.sql", "PLATA: Modelo estrella")
+# Pipeline incremental
+ejecutar_archivo_sql("notebooks/03_crear_bronze_incremental.sql", "BRONZE: Carga incremental COPY INTO")
+ejecutar_archivo_sql("notebooks/04_pipeline_plata_merge.sql", "PLATA: MERGE dimensiones + INSERT OVERWRITE fact")
 ejecutar_archivo_sql("notebooks/05_pipeline_oro.sql", "ORO: KPIs y agregaciones")
 
 print("\n" + "="*60)
-print("🎉 PIPELINE COMPLETADO EXITOSAMENTE")
+print("🎉 PIPELINE INCREMENTAL COMPLETADO EXITOSAMENTE")
 print("="*60)

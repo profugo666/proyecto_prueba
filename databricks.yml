@@ -1,0 +1,25 @@
+bundle:
+  name: proyecto_ventas_lakehouse
+  databricks_cli_version: ">= 0.238.0"
+
+targets:
+  dev:
+    default: true
+
+resources:
+  jobs:
+    pipeline_ventas_lakehouse:
+      name: "Pipeline Ventas - Bronze Plata Oro"
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: "America/Santiago"
+        pause_status: "UNPAUSED"
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+      tasks:
+        - task_key: pipeline_completo
+          environment_key: default
+          spark_python_task:
+            python_file: ./src/pipeline_job.py
