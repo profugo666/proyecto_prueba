@@ -41,13 +41,16 @@ Pipeline de datos completo con arquitectura **Bronze-Plata-Oro** implementado en
         └──────────┘     └──────────┘     └──────────┘
 ```
 
-### Capas del Lakehouse
+### Capas del Lakehouse (100% incremental)
 
 | Capa | Catálogo | Tablas | Tipo de carga |
 |------|----------|--------|---------------|
-| **Bronze** | `catalogo_bronce.ventas` | `bronze_clientes`, `bronze_productos`, `bronze_ventas` | `COPY INTO` (incremental) |
-| **Plata** | `catalogo_plata.ventas` | `dim_cliente`, `dim_producto`, `fact_ventas` | `MERGE` (upsert) + `INSERT OVERWRITE` |
-| **Oro** | `catalogo_oro.ventas` | `kpi_ventas_mensual`, `kpi_ventas_por_region`, `kpi_ventas_por_producto` | `CREATE OR REPLACE` |
+| **Bronze** | `catalogo_bronce.ventas` | `bronze_clientes`, `bronze_productos`, `bronze_ventas` | `COPY INTO` (solo archivos CSV nuevos) |
+| **Plata - dims** | `catalogo_plata.ventas` | `dim_cliente`, `dim_producto` | `MERGE` (upsert: actualiza si existe, inserta si no) |
+| **Plata - fact** | `catalogo_plata.ventas` | `fact_ventas` | `MERGE` por `venta_id` (hash MD5, evita duplicados) |
+| **Oro - mensual** | `catalogo_oro.ventas` | `kpi_ventas_mensual` | `MERGE` por `(año, mes)` |
+| **Oro - producto** | `catalogo_oro.ventas` | `kpi_ventas_por_producto` | `MERGE` por `codigo_producto` |
+| **Oro - región** | `catalogo_oro.ventas` | `kpi_ventas_por_region` | `INSERT OVERWRITE` (recalcula ranking global, solo 5 filas) |
 
 ---
 
@@ -66,14 +69,15 @@ proyecto_prueba/
 │   ├── productos_100.csv
 │   └── ventas_1000.csv
 ├── notebooks/
-│   ├── 01_generar_datos.py         # Generación de datos sintéticos
-│   ├── 02_cargar_a_bronze.py       # Carga inicial a volumen UC
-│   ├── 03_crear_bronze_incremental.sql  # COPY INTO incremental
-│   ├── 04_pipeline_plata_merge.sql      # MERGE dimensiones
-│   ├── 05_pipeline_oro.sql               # KPIs y agregaciones
-│   └── 06_dashboard_queries.sql          # Queries para AI/BI Dashboard
+│   ├── 01_generar_datos.py         # Generación de datos sintéticos con Faker
+│   ├── 02_cargar_a_bronze.py       # Carga inicial de archivos al volumen UC
+│   ├── 03_crear_bronze_incremental.sql  # COPY INTO: carga incremental de CSV
+│   ├── 04_pipeline_plata_merge_incremental.sql  # MERGE dims + CREATE fact con venta_id
+│   ├── 04_pipeline_plata_fact_merge.sql         # MERGE incremental en fact_ventas
+│   ├── 05_pipeline_oro_incremental.sql          # MERGE KPIs mensual/producto + INSERT OVERWRITE región
+│   └── 06_dashboard_queries.sql                 # Queries para AI/BI Dashboard
 ├── src/
-│   ├── pipeline_job.py             # Orquestador del pipeline (job)
+│   ├── pipeline_job.py             # Orquestador del pipeline (Databricks job)
 │   └── data_quality_tests.py       # Tests de calidad de datos
 ├── databricks.yml                  # Databricks Asset Bundle (DABs)
 ├── .gitignore
@@ -86,9 +90,9 @@ proyecto_prueba/
 
 | Tecnología | Uso |
 |------------|-----|
-| **Databricks** | Lakehouse, Delta Lake, Unity Catalog, SQL Warehouse |
+| **Databricks** | Lakehouse, Delta Lake, Unity Catalog, SQL Warehouse, Serverless Compute |
 | **Databricks Asset Bundles** | Infraestructura como código (IaC) |
-| **GitHub Actions** | CI/CD automatizado |
+| **GitHub Actions** | CI/CD automatizado (validate + deploy en cada push) |
 | **Python + Faker** | Generación de datos sintéticos |
 | **Spark SQL** | Transformaciones en capas Bronze, Plata y Oro |
 | **OpenCode** | IDE con agente de IA para desarrollo |
@@ -118,22 +122,25 @@ pip install databricks-sdk faker
 databricks auth login --host https://dbc-d423249b-1c6b.cloud.databricks.com
 ```
 
-### 4. Generar datos
+### 4. Generar datos sintéticos
 
 ```bash
 python notebooks/01_generar_datos.py
 ```
 
-### 5. Ejecutar pipeline local
+### 5. Cargar archivos al volumen UC (primera vez)
 
 ```bash
-python notebooks/07_orquestar_pipeline.py
+python notebooks/02_cargar_a_bronze.py
 ```
 
-### 6. Desplegar job en Databricks
+### 6. Desplegar y ejecutar el job en Databricks
 
 ```bash
+# Desplegar el bundle
 databricks bundle deploy
+
+# Ejecutar el pipeline manualmente
 databricks bundle run pipeline_ventas_lakehouse
 ```
 
@@ -150,6 +157,23 @@ El job está programado para ejecutarse **todos los días a las 6:00 AM (hora de
 
 ![CI/CD Status](https://github.com/profugo666/proyecto_prueba/actions/workflows/databricks.yml/badge.svg)
 
+### Flujo del job programado
+
+```
+Task 1: pipeline_completo
+  ├── Bronze: COPY INTO (solo archivos CSV nuevos en el volumen)
+  ├── Plata dims: MERGE (upsert clientes y productos)
+  ├── Plata fact: MERGE con venta_id (solo ventas nuevas)
+  └── Oro: MERGE KPIs mensual/producto + INSERT OVERWRITE región
+
+Task 2: data_quality_tests (depende de Task 1)
+  ├── bronze_clientes_not_null
+  ├── bronze_ventas_positive
+  ├── plata_dim_cliente_unique
+  ├── plata_fact_ventas_integrity
+  └── oro_kpi_not_empty
+```
+
 ---
 
 ## 📊 Dashboard
@@ -160,6 +184,7 @@ Las queries para el dashboard están en `notebooks/06_dashboard_queries.sql`. Pa
 2. Crear nuevo query y pegar el contenido de `06_dashboard_queries.sql`
 3. Ejecutar cada query y usar **"Add to Dashboard"**
 4. Configurar visualizaciones: líneas, barras, heatmap, tabla
+5. Agregar filtros por fecha y región
 
 ---
 
@@ -186,4 +211,4 @@ El pipeline incluye 5 tests automáticos que se ejecutan después de cada carga:
 
 ## 📄 Licencia
 
-Proyecto de prueba para demostración de arquitectura Lakehouse con Databricks.
+Proyecto de prueba para demostración de arquitectura Lakehouse incremental con Databricks.
